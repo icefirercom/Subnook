@@ -64,11 +64,24 @@ import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private enum class Kind { PAID, UPCOMING, OVERDUE }
-private data class Event(val sub: Subscription, val date: LocalDate, val amount: Double, val currency: String, val kind: Kind)
+private enum class Kind { PAID, UPCOMING, OVERDUE, WARRANTY }
+private data class Event(
+    val key: String,
+    val name: String,
+    val iconType: com.subnook.app.data.IconType,
+    val iconValue: String,
+    val color: Int,
+    val date: LocalDate,
+    val amount: Double,
+    val currency: String,
+    val kind: Kind,
+    val sub: Subscription? = null,
+    val asset: com.subnook.app.data.Asset? = null,
+    val extraLabel: String = "",
+)
 
 @Composable
-fun CalendarScreen(vm: MainViewModel, onOpen: (Long) -> Unit) {
+fun CalendarScreen(vm: MainViewModel, onOpen: (Long) -> Unit, onOpenAsset: (Long) -> Unit = {}) {
     val st by vm.state.collectAsState()
     val today = LocalDate.now()
     var monthStr by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
@@ -79,29 +92,45 @@ fun CalendarScreen(vm: MainViewModel, onOpen: (Long) -> Unit) {
     val payments by remember(monthStr) { vm.observePaymentsBetween(first.toEpochDay(), last.toEpochDay()) }.collectAsState(emptyList())
     val extra = LocalExtra.current
 
-    val events: Map<LocalDate, List<Event>> = remember(st.subs, payments, monthStr) {
+    val events: Map<LocalDate, List<Event>> = remember(st.subs, st.assets, payments, monthStr) {
         val byId = st.subs.associateBy { it.id }
         val list = mutableListOf<Event>()
         // 过去：实际付款记录
         payments.forEach { p ->
-            byId[p.subscriptionId]?.let { list += Event(it, LocalDate.ofEpochDay(p.billingDay), p.amount, p.currency, Kind.PAID) }
+            byId[p.subscriptionId]?.let { s ->
+                list += Event("s_${s.id}", s.name, s.iconType, s.iconValue, s.color, LocalDate.ofEpochDay(p.billingDay), p.amount, p.currency, Kind.PAID, sub = s)
+            }
         }
         st.active.forEach { s ->
+            if (s.isLifetime) return@forEach
             val due = LocalDate.ofEpochDay(s.nextBillingDay)
             // 手动付款逾期未确认
-            if (due < today && due >= first && due <= last) list += Event(s, due, s.amount, s.currency, Kind.OVERDUE)
+            if (due < today && due >= first && due <= last) {
+                list += Event("s_${s.id}", s.name, s.iconType, s.iconValue, s.color, due, s.amount, s.currency, Kind.OVERDUE, sub = s)
+            }
             // 今天及以后：预测账单
             val from = maxOf(first, today)
             if (from <= last) Billing.upcoming(s, from, last).forEach { d ->
-                list += Event(s, d, Billing.amountOn(s, d), s.currency, Kind.UPCOMING)
+                list += Event("s_${s.id}", s.name, s.iconType, s.iconValue, s.color, d, Billing.amountOn(s, d), s.currency, Kind.UPCOMING, sub = s)
+            }
+        }
+        // 实物资产保修到期日（不计入月度支出合计，仅做日历提醒标记）
+        st.assets.filter { it.isOwned }.forEach { a ->
+            a.warrantyEndDay?.let { LocalDate.ofEpochDay(it) }?.takeIf { it in first..last }?.let { d ->
+                list += Event("a_${a.id}", a.name, a.iconType, a.iconValue, a.color, d, 0.0, a.currency, Kind.WARRANTY, asset = a, extraLabel = "保修到期")
+            }
+            a.extWarrantyEndDay?.let { LocalDate.ofEpochDay(it) }?.takeIf { it in first..last }?.let { d ->
+                val lbl = a.extWarrantyLabel.ifBlank { "延保" } + "到期"
+                list += Event("ax_${a.id}", a.name, a.iconType, a.iconValue, a.color, d, 0.0, a.currency, Kind.WARRANTY, asset = a, extraLabel = lbl)
             }
         }
         list.groupBy { it.date }
     }
     val cur = st.settings.displayCurrency
     val all = events.values.flatten()
-    val monthTotal = all.sumOf { st.rates.convert(it.amount, it.currency, cur) }
-    val paidTotal = all.filter { it.kind == Kind.PAID }.sumOf { st.rates.convert(it.amount, it.currency, cur) }
+    val billEvents = all.filter { it.kind != Kind.WARRANTY }
+    val monthTotal = billEvents.sumOf { st.rates.convert(it.amount, it.currency, cur) }
+    val paidTotal = billEvents.filter { it.kind == Kind.PAID }.sumOf { st.rates.convert(it.amount, it.currency, cur) }
 
     LazyColumn(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
@@ -167,27 +196,43 @@ fun CalendarScreen(vm: MainViewModel, onOpen: (Long) -> Unit) {
             }
         }
         items(dayEvents) { e ->
-            SoftCard(Modifier.fillMaxWidth().padding(bottom = 10.dp), onClick = { onOpen(e.sub.id) }) {
+            SoftCard(
+                Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                onClick = { e.sub?.let { onOpen(it.id) } ?: e.asset?.let { onOpenAsset(it.id) } },
+            ) {
                 Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    SubIcon(e.sub.iconType, e.sub.iconValue, e.sub.color, e.sub.name, size = 44.dp)
+                    SubIcon(e.iconType, e.iconValue, e.color, e.name, size = 44.dp)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(e.sub.name, style = MaterialTheme.typography.titleSmall)
+                        Text(e.name, style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.height(4.dp))
                         when (e.kind) {
                             Kind.PAID -> Pill("已付款", extra.success)
                             Kind.OVERDUE -> Pill("逾期未确认", extra.danger)
-                            Kind.UPCOMING -> Pill(
-                                when {
-                                    e.sub.isOneTime -> "${e.sub.payMethodLabel} 到期"
-                                    e.sub.autoRenew -> "${e.sub.payMethodLabel} 自动扣款"
-                                    else -> "${e.sub.payMethodLabel} 手动付款"
-                                },
-                                MaterialTheme.colorScheme.primary,
-                            )
+                            Kind.WARRANTY -> Pill(e.extraLabel.ifBlank { "保修到期" }, MaterialTheme.colorScheme.tertiary)
+                            Kind.UPCOMING -> {
+                                val s = e.sub
+                                Pill(
+                                    when {
+                                        s == null -> ""
+                                        s.isOneTime -> "${s.payMethodLabel} 到期"
+                                        s.autoRenew -> "${s.payMethodLabel} 自动扣款"
+                                        else -> "${s.payMethodLabel} 手动付款"
+                                    },
+                                    MaterialTheme.colorScheme.primary,
+                                )
+                            }
                         }
                     }
-                    Text(Currencies.formatList(e.amount, e.currency), style = MaterialTheme.typography.titleSmall.merge(TabularNums), fontWeight = FontWeight.Bold)
+                    if (e.kind == Kind.WARRANTY) {
+                        Text(
+                            e.asset?.purchaseChannel?.ifBlank { e.asset.category.label } ?: "物品",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(Currencies.formatList(e.amount, e.currency), style = MaterialTheme.typography.titleSmall.merge(TabularNums), fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -271,7 +316,7 @@ private fun DayCell(d: LocalDate, isToday: Boolean, isSelected: Boolean, ev: Lis
             },
         )
         Spacer(Modifier.height(4.dp))
-        val shown = ev.distinctBy { it.sub.id }
+        val shown = ev.distinctBy { it.key }
         if (shown.isNotEmpty()) {
             // 图标叠放，最多 3 个
             Box(Modifier.height(22.dp), contentAlignment = Alignment.Center) {
@@ -280,7 +325,7 @@ private fun DayCell(d: LocalDate, isToday: Boolean, isSelected: Boolean, ev: Lis
                 Box(Modifier.width((20 + (n - 1) * step).dp)) {
                     shown.take(n).forEachIndexed { i, e ->
                         Box(Modifier.offset(x = (i * step).dp)) {
-                            SubIcon(e.sub.iconType, e.sub.iconValue, e.sub.color, e.sub.name, size = 20.dp)
+                            SubIcon(e.iconType, e.iconValue, e.color, e.name, size = 20.dp)
                         }
                     }
                 }

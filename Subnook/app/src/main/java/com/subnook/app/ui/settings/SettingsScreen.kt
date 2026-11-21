@@ -80,8 +80,12 @@ import com.subnook.app.data.UpdateChecker
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.CreditCard
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import com.subnook.app.notify.Scheduler
@@ -118,6 +122,14 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     var checking by remember { mutableStateOf(false) }
     var updateResult by remember { mutableStateOf<UpdateChecker.Result?>(null) }
+    var snapshotsDlg by remember { mutableStateOf(false) }
+    var snapshots by remember { mutableStateOf<List<com.subnook.app.data.LocalSnapshot>>(emptyList()) }
+    var restoreSnapTarget by remember { mutableStateOf<com.subnook.app.data.LocalSnapshot?>(null) }
+    var releasesDlg by remember { mutableStateOf(false) }
+    var loadingReleases by remember { mutableStateOf(false) }
+    var releases by remember { mutableStateOf<List<UpdateChecker.Release>>(emptyList()) }
+    val refreshSnapshots: () -> Unit = { scope.launch { snapshots = vm.listLocalSnapshots() } }
+    LaunchedEffect(snapshotsDlg) { if (snapshotsDlg) refreshSnapshots() }
     val openUrl: (String) -> Unit = { url ->
         runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
             .onFailure { vm.toast("没有可以打开链接的浏览器") }
@@ -227,6 +239,10 @@ fun SettingsScreen(
             Item(Icons.Rounded.Download, Color(0xFF3B82F6), "导入备份") {
                 importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
             }
+            Divider()
+            Item(Icons.Rounded.History, Color(0xFFC26D2D), "本地回退快照", "导入或升级前自动存档，支持秒级回退") {
+                snapshotsDlg = true
+            }
             CloudBackupRows(vm)
         }
 
@@ -252,13 +268,34 @@ fun SettingsScreen(
                     checking = false
                 }
             }
+            Divider()
+            Item(
+                Icons.Rounded.NewReleases, Color(0xFF2B6CB0), "版本历史与回退",
+                if (loadingReleases) "正在拉取 Releases…" else "查看更新记录或下载历史 APK",
+            ) {
+                if (loadingReleases) return@Item
+                loadingReleases = true
+                scope.launch {
+                    runCatching { UpdateChecker.listReleases() }
+                        .onSuccess {
+                            releases = it
+                            releasesDlg = true
+                        }
+                        .onFailure { vm.toast("获取版本历史失败：${it.message ?: it.javaClass.simpleName}") }
+                    loadingReleases = false
+                }
+            }
         }
 
         Text(
             run {
                 val inst = st.subs.count { it.isInstallment }
-                val count = if (inst > 0) "${st.subs.size - inst} 个订阅、$inst 个分期" else "${st.subs.size} 个订阅"
-                count
+                val parts = buildList {
+                    add("${st.subs.size - inst} 个订阅")
+                    if (inst > 0) add("$inst 个分期")
+                    if (st.assets.isNotEmpty()) add("${st.assets.size} 件物品")
+                }
+                parts.joinToString(" · ")
             },
             style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant,
             modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -344,9 +381,105 @@ fun SettingsScreen(
         AppAlertDialog(
             onDismissRequest = { importUri = null },
             title = { Text("导入并覆盖？") },
-            text = { Text("当前全部数据将被备份文件替换，无法撤销。") },
+            text = { Text("导入前会自动保存一份本地回退快照，覆盖后可随时回退。") },
             confirmButton = { TextButton(onClick = { vm.import(uri); importUri = null }) { Text("覆盖导入", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { importUri = null }) { Text("取消") } },
+        )
+    }
+    if (snapshotsDlg) {
+        val timeFmt = remember { DateTimeFormatter.ofPattern("M月d日 HH:mm:ss") }
+        AppAlertDialog(
+            onDismissRequest = { snapshotsDlg = false },
+            title = { Text("本地回退快照") },
+            text = {
+                Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "保留最近 8 份本地快照。升级、导入备份或云端恢复前都会自动留档，随时可一键回退。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = cs.onSurfaceVariant,
+                    )
+                    if (snapshots.isEmpty()) {
+                        Text("暂无本地快照，点击下方按钮立即创建一个。", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+                    } else {
+                        snapshots.forEach { snap ->
+                            val t = Instant.ofEpochMilli(snap.createdAt).atZone(ZoneId.systemDefault()).format(timeFmt)
+                            val kb = (snap.sizeBytes / 1024.0).let { if (it < 1) "<1 KB" else "%.1f KB".format(it) }
+                            Row(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(cs.surfaceContainer)
+                                    .clickable { restoreSnapTarget = snap }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("$t · ${snap.versionName}", style = MaterialTheme.typography.titleSmall)
+                                    Text("${snap.reasonLabel} · $kb", style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant)
+                                }
+                                Text("回退", style = MaterialTheme.typography.labelLarge, color = cs.primary)
+                                androidx.compose.material3.IconButton(
+                                    onClick = { vm.deleteLocalSnapshot(snap.fileName) { refreshSnapshots() } },
+                                    modifier = Modifier.width(34.dp),
+                                ) { Icon(Icons.Rounded.DeleteOutline, "删除", tint = cs.outline) }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.createLocalSnapshot { refreshSnapshots() } }) { Text("立即创建快照") }
+            },
+            dismissButton = { TextButton(onClick = { snapshotsDlg = false }) { Text("关闭") } },
+        )
+    }
+    restoreSnapTarget?.let { snap ->
+        AppAlertDialog(
+            onDismissRequest = { restoreSnapTarget = null },
+            title = { Text("回退到此快照？") },
+            text = { Text("当前数据将恢复为「${snap.reasonLabel}（${snap.versionName}）」时的状态。若当前数据有改动，系统会自动先保存一份回退前快照。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val target = snap.fileName
+                    restoreSnapTarget = null
+                    vm.restoreLocalSnapshot(target) { refreshSnapshots() }
+                }) { Text("确认回退", color = cs.error) }
+            },
+            dismissButton = { TextButton(onClick = { restoreSnapTarget = null }) { Text("取消") } },
+        )
+    }
+    if (releasesDlg) {
+        AppAlertDialog(
+            onDismissRequest = { releasesDlg = false },
+            title = { Text("版本历史与回退") },
+            text = {
+                Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("当前安装版本：v${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}）", style = MaterialTheme.typography.labelLarge, color = cs.primary)
+                    if (releases.isEmpty()) {
+                        Text("仓库暂未发布 Release。你可以点击下方打开 Releases 页面。", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+                    } else {
+                        releases.forEach { rel ->
+                            Column(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(cs.surfaceContainer)
+                                    .clickable { openUrl(rel.apkUrl ?: rel.url) }
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("v${rel.version}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                                    if (rel.publishedAt.isNotBlank()) Text(rel.publishedAt, style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant)
+                                }
+                                if (rel.notes.isNotBlank()) {
+                                    Text(rel.notes.take(120), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                                }
+                                Text(
+                                    if (rel.apkUrl != null) "点击下载此版本 APK ›" else "点击打开 Release 页面 ›",
+                                    style = MaterialTheme.typography.labelMedium, color = cs.primary,
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { openUrl(UpdateChecker.RELEASES_URL); releasesDlg = false }) { Text("打开 Releases") } },
+            dismissButton = { TextButton(onClick = { releasesDlg = false }) { Text("关闭") } },
         )
     }
 }

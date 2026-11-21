@@ -1,0 +1,81 @@
+name: Build & Publish Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release Tag (e.g. v1.5.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode Release Keystore (if configured in Secrets)
+        id: ks
+        working-directory: Subnook
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            mkdir -p keystore
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > keystore/release.jks
+            cat <<EOF > keystore.properties
+          storeFile=keystore/release.jks
+          storePassword=${KEYSTORE_PASSWORD}
+          keyAlias=${KEY_ALIAS}
+          keyPassword=${KEY_PASSWORD}
+          EOF
+            echo "has_keystore=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_keystore=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::KEYSTORE_BASE64 未配置，将仅执行单元测试，跳过自动发布 debug 签名 APK（避免覆盖本地正式签名包）。"
+          fi
+
+      - name: Run Unit Tests
+        working-directory: Subnook
+        run: ./gradlew testDebugUnitTest --console=plain
+
+      - name: Build Signed Release APK
+        if: steps.ks.outputs.has_keystore == 'true'
+        working-directory: Subnook
+        run: ./gradlew assembleRelease --console=plain
+
+      - name: Prepare Release Assets
+        if: steps.ks.outputs.has_keystore == 'true'
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          mkdir -p dist
+          cp Subnook/app/build/outputs/apk/release/app-release.apk "dist/Subnook-${TAG}.apk"
+          (cd dist && sha256sum "Subnook-${TAG}.apk" > SHA256SUMS.txt)
+
+      - name: Publish GitHub Release
+        if: steps.ks.outputs.has_keystore == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/Subnook-*.apk
+            dist/SHA256SUMS.txt

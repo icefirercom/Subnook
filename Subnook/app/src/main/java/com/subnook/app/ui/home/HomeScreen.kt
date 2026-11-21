@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AllInclusive
 import androidx.compose.material.icons.rounded.Autorenew
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CreditCard
@@ -300,6 +301,7 @@ fun HomeScreen(
     }.collectAsState(emptyList())
     fun monthCost(list: List<Subscription>): Double = list.sumOf { s ->
         val paid = monthPayments.filter { it.subscriptionId == s.id }.sumOf { st.rates.convert(it.amount, it.currency, cur) }
+        if (s.isLifetime) return@sumOf paid
         val next = LocalDate.ofEpochDay(s.nextBillingDay)
         val overdue = if (next < today && next >= monthFirst) Billing.amountOn(s, next) else 0.0
         val upcoming = if (today <= monthLast) Billing.upcomingCost(s, maxOf(today, monthFirst), monthLast) else 0.0
@@ -838,6 +840,7 @@ private fun SubCard(s: Subscription, st: UiState, today: LocalDate, onClick: () 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         when {
+                            s.isLifetime -> Icons.Rounded.AllInclusive
                             s.isOneTime -> Icons.Rounded.Event
                             s.autoRenew -> Icons.Rounded.Autorenew
                             else -> Icons.Rounded.TouchApp
@@ -847,11 +850,12 @@ private fun SubCard(s: Subscription, st: UiState, today: LocalDate, onClick: () 
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        date.format(DateTimeFormatter.ofPattern(dateFmt)) + (if (s.isOneTime) "到期 · " else " · ") + when {
-                            s.isOneTime -> s.payMethodLabel
-                            s.payMethod == com.subnook.app.data.PayMethod.MANUAL -> "手动付款"
-                            s.autoRenew -> s.payMethodLabel
-                            else -> "${s.payMethodLabel} · 手动"
+                        when {
+                            s.isLifetime -> "${date.format(DateTimeFormatter.ofPattern(dateFmt))}购入 · ${s.payMethodLabel}"
+                            s.isOneTime -> "${date.format(DateTimeFormatter.ofPattern(dateFmt))}到期 · ${s.payMethodLabel}"
+                            s.payMethod == com.subnook.app.data.PayMethod.MANUAL -> "${date.format(DateTimeFormatter.ofPattern(dateFmt))} · 手动付款"
+                            s.autoRenew -> "${date.format(DateTimeFormatter.ofPattern(dateFmt))} · ${s.payMethodLabel}"
+                            else -> "${date.format(DateTimeFormatter.ofPattern(dateFmt))} · ${s.payMethodLabel} · 手动"
                         },
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -860,8 +864,12 @@ private fun SubCard(s: Subscription, st: UiState, today: LocalDate, onClick: () 
                 Spacer(Modifier.height(7.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (s.active) {
-                        Pill(Billing.dueText(days), dueColor(days))
-                        BalancePill(s)
+                        if (s.isLifetime) {
+                            Pill("永久有效", LocalExtra.current.success)
+                        } else {
+                            Pill(Billing.dueText(days), dueColor(days))
+                            BalancePill(s)
+                        }
                     } else {
                         Pill("已停用", MaterialTheme.colorScheme.outline)
                     }

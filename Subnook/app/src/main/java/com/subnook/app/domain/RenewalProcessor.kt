@@ -35,6 +35,13 @@ class RenewalProcessor(
             if (sub.active) sub = remind(sub, today, notifyTimeReached)
             if (sub != orig) dao.upsert(sub)
         }
+        // 实物资产过保提醒（按提前 N 天 / 7 天 / 当天关键节点提醒，不骚扰）
+        for (asset in dao.getAllAssets()) {
+            if (Assets.shouldRemindWarranty(asset, today, notifyTimeReached)) {
+                notifier.warrantyExpiring(asset, today)
+                dao.upsertAsset(asset.copy(remindedForDay = today.toEpochDay()))
+            }
+        }
     }
 
     private suspend fun rollAutoRenew(sub: Subscription, today: LocalDate): Subscription {
@@ -66,6 +73,7 @@ class RenewalProcessor(
         sub.autoRenew && Balance.usesBalance(sub) && LocalDate.ofEpochDay(sub.nextBillingDay) < today
 
     private fun remind(sub: Subscription, today: LocalDate, timeReached: Boolean): Subscription {
+        if (sub.isLifetime) return sub
         var out = sub
         val due = LocalDate.ofEpochDay(sub.nextBillingDay)
         if (shouldRemind(sub, today, timeReached)) {
@@ -83,9 +91,9 @@ class RenewalProcessor(
     }
 
     companion object {
-        /** 从账单日前 N 天开始，到账单日当天，每天到点提醒一次（remindedForDay 记录最后一次提醒的日期） */
+        /** 从账单日前 N 天开始，到账单日当天，每天到点提醒一次（买断制无结束时间不提醒） */
         fun shouldRemind(sub: Subscription, today: LocalDate, timeReached: Boolean): Boolean {
-            if (!sub.active || !sub.remindEnabled || !timeReached) return false
+            if (!sub.active || sub.isLifetime || !sub.remindEnabled || !timeReached) return false
             if (sub.remindedForDay == today.toEpochDay()) return false
             val due = LocalDate.ofEpochDay(sub.nextBillingDay)
             return today >= due.minusDays(sub.remindDaysBefore.toLong()) && today <= due

@@ -57,6 +57,10 @@ data class AppSettings(
     val disabledPresets: List<String> = emptyList(),
     /** 用户自定义的订阅源列表（支持新增、编辑、启停、删除） */
     val customPresets: List<CustomPreset> = emptyList(),
+    /** 实物资产：自定义购买渠道池（如 京东自营、山姆、线下门店） */
+    val customPurchaseChannels: List<String> = emptyList(),
+    /** 实物资产：停用的购买渠道 */
+    val disabledPurchaseChannels: List<String> = emptyList(),
 ) {
     val sortAscending: Boolean get() = sortAsc ?: sort.defaultAsc
 }
@@ -80,6 +84,9 @@ class SettingsRepository(private val context: Context) {
         val disabledPayChannels = stringPreferencesKey("disabled_pay_channels")
         val disabledPresets = stringPreferencesKey("disabled_presets")
         val customPresets = stringPreferencesKey("custom_presets")
+        val customPurchaseChannels = stringPreferencesKey("custom_purchase_channels")
+        val disabledPurchaseChannels = stringPreferencesKey("disabled_purchase_channels")
+        val lastVersionCode = intPreferencesKey("last_app_version_code")
     }
 
     val flow: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -98,6 +105,8 @@ class SettingsRepository(private val context: Context) {
             disabledPayChannels = parseCategories(p[K.disabledPayChannels]),
             disabledPresets = parseCategories(p[K.disabledPresets]),
             customPresets = parseCustomPresets(p[K.customPresets]),
+            customPurchaseChannels = parseCategories(p[K.customPurchaseChannels]),
+            disabledPurchaseChannels = parseCategories(p[K.disabledPurchaseChannels]),
         )
     }
 
@@ -197,6 +206,27 @@ class SettingsRepository(private val context: Context) {
         it[K.customPresets] = encodeCustomPresets(list)
     }
 
+    suspend fun addCustomPurchaseChannel(name: String) = context.dataStore.edit {
+        val list = parseCategories(it[K.customPurchaseChannels])
+        val n = cleanCategory(name)
+        if (n.isNotEmpty() && n !in list) it[K.customPurchaseChannels] = (list + n).joinToString(SEP)
+    }
+
+    suspend fun removeCustomPurchaseChannel(name: String) = context.dataStore.edit {
+        it[K.customPurchaseChannels] = (parseCategories(it[K.customPurchaseChannels]) - name).joinToString(SEP)
+        it[K.disabledPurchaseChannels] = (parseCategories(it[K.disabledPurchaseChannels]) - name).joinToString(SEP)
+    }
+
+    suspend fun setPurchaseChannelEnabled(name: String, enabled: Boolean) = context.dataStore.edit {
+        val cur = parseCategories(it[K.disabledPurchaseChannels])
+        val next = if (enabled) cur - name else (cur + name).distinct()
+        it[K.disabledPurchaseChannels] = next.joinToString(SEP)
+    }
+
+    /** 记录上次运行时的 versionCode（用于检测版本升级并在启动时自动保存回退快照） */
+    suspend fun lastAppVersionCode(): Int = context.dataStore.data.first()[K.lastVersionCode] ?: 0
+    suspend fun setLastAppVersionCode(code: Int) = context.dataStore.edit { it[K.lastVersionCode] = code }
+
     suspend fun get(): AppSettings = flow.first()
 
     suspend fun setCurrency(c: String) = context.dataStore.edit { it[K.currency] = c }
@@ -219,6 +249,8 @@ class SettingsRepository(private val context: Context) {
         it[K.disabledPayChannels] = s.disabledPayChannels.joinToString(SEP)
         it[K.disabledPresets] = s.disabledPresets.joinToString(SEP)
         it[K.customPresets] = encodeCustomPresets(s.customPresets)
+        it[K.customPurchaseChannels] = s.customPurchaseChannels.joinToString(SEP)
+        it[K.disabledPurchaseChannels] = s.disabledPurchaseChannels.joinToString(SEP)
     }
 }
 

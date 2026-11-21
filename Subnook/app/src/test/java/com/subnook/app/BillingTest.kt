@@ -5,7 +5,10 @@ import com.subnook.app.data.RateTable
 import com.subnook.app.data.Subscription
 import com.subnook.app.data.SummaryPeriod
 import com.subnook.app.domain.Billing
+import com.subnook.app.domain.RenewalProcessor
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 
@@ -73,5 +76,24 @@ class BillingTest {
         val earlierRecurring = sub(due.minusDays(1))
         val sorted = listOf(earlierRecurring, oneTime).sortedWith(Billing.pendingComparator)
         assertEquals(listOf(oneTime, earlierRecurring), sorted)
+    }
+
+    @Test fun lifetimeOneTimeHasNoExpiryOrReminder() {
+        val bought = LocalDate.of(2026, 5, 1)
+        val buyout = sub(bought, amount = 298.0).copy(
+            kind = com.subnook.app.data.SubKind.ONE_TIME,
+            autoRenew = false,
+            noExpiry = true,
+            remindEnabled = true,
+            remindDaysBefore = 7,
+        )
+        assertTrue(buyout.isLifetime)
+        assertEquals("买断", Billing.cycleText(buyout))
+        assertEquals(0.0, Billing.periodCost(buyout, SummaryPeriod.MONTH), 1e-9)
+        assertEquals(emptyList<LocalDate>(), Billing.occurrences(buyout, bought.minusYears(1), bought.plusYears(1)))
+        assertFalse(Billing.isPayable(buyout, bought))
+        assertFalse(Billing.isPayable(buyout, bought.plusDays(10)))
+        assertFalse(RenewalProcessor.shouldRemind(buyout, bought, timeReached = true))
+        assertFalse(RenewalProcessor.shouldRemind(buyout, bought.minusDays(1), timeReached = true))
     }
 }

@@ -57,7 +57,7 @@ class CloudBackup(private val context: Context) {
 
     suspend fun restore(name: String): ImportResult {
         val text = client().download(name).decodeToString()
-        val r = app.backup.importText(text)
+        val r = app.backup.importText(text, autoSnapshotReason = "pre_cloud")
         // 刚从云端恢复的数据和云端一致，下次自动备份不用重复上传
         runCatching { repo.markBackedUp(repo.get().lastBackupAt, BackupCodec.fingerprint(app.backup.snapshot())) }
         return r

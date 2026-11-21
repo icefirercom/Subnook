@@ -175,7 +175,7 @@ fun FloatingNavBar(items: List<NavItem>, current: String?, onSelect: (String) ->
         Modifier.fillMaxWidth()
             // 底部渐隐，让悬浮栏和后面滚动的内容分开
             .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(bg.copy(alpha = 0f), bg.copy(alpha = 0.92f), bg)))
-            .windowInsetsPadding(WindowInsets.navigationBars).padding(start = 28.dp, end = 28.dp, bottom = 10.dp, top = 22.dp),
+            .windowInsetsPadding(WindowInsets.navigationBars).padding(start = 18.dp, end = 18.dp, bottom = 10.dp, top = 22.dp),
         contentAlignment = Alignment.Center,
     ) {
         Row(

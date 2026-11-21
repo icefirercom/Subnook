@@ -17,8 +17,8 @@ android {
         minSdk = 26
         targetSdk = 36
         // 发版时：versionCode +1；versionName 按「主版本.功能.修复」递增，并在仓库根目录 CHANGELOG.md 记录
-        versionCode = 26
-        versionName = "1.3.1"
+        versionCode = 28
+        versionName = "1.5.0"
     }
 
     signingConfigs {
@@ -102,6 +102,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     // WebDAV 云端备份（PROPFIND / MKCOL 这类方法 HttpURLConnection 不支持）
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // 离线本地中英文 OCR（用于物品管理从订单截图自动识别订单号/日期/金额，不联网上传隐私图）
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")

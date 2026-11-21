@@ -8,6 +8,7 @@ import com.subnook.app.data.SortOrder
 import com.subnook.app.data.SubKind
 import com.subnook.app.data.Subscription
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -134,6 +135,21 @@ class BackupCompatTest {
     @Test(expected = IllegalArgumentException::class)
     fun rejectsOtherApps() {
         BackupCodec.decode("""{"app":"Other","subscriptions":[],"payments":[]}""")
+    }
+
+    @Test fun lifetimeNoExpiryRoundTripAndCompat() {
+        val buyout = Subscription(
+            id = 12, name = "Typora 买断", amount = 89.0, currency = "CNY",
+            nextBillingDay = 20800, anchorDay = 1, kind = SubKind.ONE_TIME,
+            autoRenew = false, noExpiry = true, note = "硬件码：ABCD-1234\n账号ID：ice@example.com",
+        )
+        val back = BackupCodec.decode(BackupCodec.encode(BackupFile(subscriptions = listOf(buyout)))).subscriptions.single()
+        assertEquals(buyout, back)
+        assertTrue(back.noExpiry)
+        assertTrue(back.isLifetime)
+        // 旧备份缺省为 false，保证向后兼容
+        assertTrue(BackupCodec.decode(v120).subscriptions.all { !it.noExpiry && !it.isLifetime })
+        assertFalse(BackupCodec.decode(v100).subscriptions.single().noExpiry)
     }
 
     @Test fun fingerprintIgnoresExportTime() {

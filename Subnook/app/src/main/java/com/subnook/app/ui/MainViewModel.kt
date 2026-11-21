@@ -24,6 +24,7 @@ import kotlinx.coroutines.launch
 
 data class UiState(
     val subs: List<Subscription> = emptyList(),
+    val assets: List<com.subnook.app.data.Asset> = emptyList(),
     val settings: AppSettings = AppSettings(),
     val rates: RateTable = RateTable(emptyMap(), 0),
     val loaded: Boolean = false,
@@ -48,7 +49,7 @@ data class UiState(
         val byName = compareBy(nameCollator) { s: Subscription -> s.name.trim() }
         val key: Comparator<Subscription> = when (settings.sort) {
             SortOrder.MANUAL -> return list.sortedWith(compareBy<Subscription> { it.sortIndex }.thenBy { it.id })
-            SortOrder.NEXT_DATE -> compareBy { it.nextBillingDay }
+            SortOrder.NEXT_DATE -> compareBy { if (it.isLifetime) Long.MAX_VALUE else it.nextBillingDay }
             SortOrder.AMOUNT -> compareBy { monthly(it) }
             SortOrder.NAME -> byName
             SortOrder.CATEGORY -> compareBy { it.category.ordinal }
@@ -70,11 +71,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages = _messages.asSharedFlow()
 
-    val state: StateFlow<UiState> = combine(a.dao.observeAll(), a.settings.flow, a.rates.table) { subs, s, r ->
-        UiState(subs, s, r, loaded = true)
+    val state: StateFlow<UiState> = combine(a.dao.observeAll(), a.dao.observeAllAssets(), a.settings.flow, a.rates.table) { subs, assets, s, r ->
+        UiState(subs, assets, s, r, loaded = true)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), UiState())
 
     fun observeSub(id: Long): Flow<Subscription?> = a.dao.observe(id)
+    fun observeAsset(id: Long): Flow<com.subnook.app.data.Asset?> = a.dao.observeAsset(id)
     fun observePayments(id: Long): Flow<List<PaymentRecord>> = a.dao.observePayments(id)
     fun observePaymentsBetween(from: Long, to: Long) = a.dao.observePaymentsBetween(from, to)
     fun observeAllPayments() = a.dao.observeAllPayments()
@@ -121,6 +123,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun upsertCustomPreset(preset: com.subnook.app.data.CustomPreset) = viewModelScope.launch { a.settings.upsertCustomPreset(preset) }
     fun setCustomPresetEnabled(key: String, enabled: Boolean) = viewModelScope.launch { a.settings.setCustomPresetEnabled(key, enabled) }
     fun deleteCustomPreset(key: String) = viewModelScope.launch { a.settings.deleteCustomPreset(key) }
+    fun addCustomPurchaseChannel(name: String) = viewModelScope.launch { a.settings.addCustomPurchaseChannel(name) }
+    fun removeCustomPurchaseChannel(name: String) = viewModelScope.launch { a.settings.removeCustomPurchaseChannel(name) }
+    fun setPurchaseChannelEnabled(name: String, enabled: Boolean) = viewModelScope.launch { a.settings.setPurchaseChannelEnabled(name, enabled) }
+
+    // ---- 实物资产管理 ----
+    fun saveAsset(asset: com.subnook.app.data.Asset, onDone: () -> Unit = {}) = viewModelScope.launch {
+        a.dao.upsertAsset(asset)
+        Scheduler.runAll(a)
+        onDone()
+    }
+
+    fun deleteAsset(asset: com.subnook.app.data.Asset) = viewModelScope.launch {
+        asset.photoList.forEach { com.subnook.app.ui.components.AssetPhotos.delete(a, it) }
+        a.dao.deleteAsset(asset)
+        a.notifier.cancelAsset(asset.id)
+        toast("已删除「${asset.name}」")
+    }
 
     // ---- 余额充值 ----
     fun observeTopUps(id: Long) = a.dao.observeTopUps(id)
@@ -230,7 +249,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun export(uri: Uri) = viewModelScope.launch {
         runCatching { a.backup.export(uri) }
-            .onSuccess { toast("已导出 $it 个订阅") }
+            .onSuccess { toast("已导出 $it 条记录（含订阅与物品）") }
             .onFailure { toast("导出失败：${it.message}") }
     }
 
@@ -238,9 +257,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { a.backup.import(uri) }
             .onSuccess {
                 Scheduler.runAll(a)
-                toast("已导入 ${it.subs} 个订阅、${it.payments} 条付款记录")
+                val extra = if (it.assets > 0) "、${it.assets} 件物品" else ""
+                toast("已导入 ${it.subs} 个订阅、${it.payments} 条付款记录$extra（原数据已自动存快照）")
             }
             .onFailure { toast("导入失败：${it.message}") }
+    }
+
+    // ---- 本地回退快照 ----
+    suspend fun listLocalSnapshots(): List<com.subnook.app.data.LocalSnapshot> = a.backup.listLocalSnapshots()
+
+    fun createLocalSnapshot(onDone: () -> Unit = {}) = viewModelScope.launch {
+        runCatching { a.backup.createLocalSnapshot(reason = "manual", skipIfEmpty = false) }
+            .onSuccess { toast("已创建本地回退快照"); onDone() }
+            .onFailure { toast("创建快照失败：${it.message}") }
+    }
+
+    fun restoreLocalSnapshot(fileName: String, onDone: () -> Unit = {}) = viewModelScope.launch {
+        runCatching { a.backup.restoreLocalSnapshot(fileName) }
+            .onSuccess {
+                Scheduler.runAll(a)
+                val extra = if (it.assets > 0) "、${it.assets} 件物品" else ""
+                toast("已回退至快照：${it.subs} 个订阅$extra")
+                onDone()
+            }
+            .onFailure { toast("回退失败：${it.message}") }
+    }
+
+    fun deleteLocalSnapshot(fileName: String, onDone: () -> Unit = {}) = viewModelScope.launch {
+        runCatching { a.backup.deleteLocalSnapshot(fileName) }
+            .onSuccess { onDone() }
     }
 
     // ---- WebDAV 云端备份 ----
@@ -277,7 +322,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { a.cloud.restore(name) }
             .onSuccess {
                 Scheduler.runAll(a)
-                toast("已从云端恢复 ${it.subs} 个项目、${it.payments} 条付款记录")
+                val extra = if (it.assets > 0) "、${it.assets} 件物品" else ""
+                toast("已从云端恢复 ${it.subs} 个项目、${it.payments} 条记录$extra（原数据已存本地快照）")
             }
             .onFailure { toast("恢复失败：${it.message}") }
     }

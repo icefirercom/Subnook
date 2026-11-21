@@ -1,8 +1,9 @@
 # 本地工具链（JDK / SDK / Gradle 及缓存，体积大）
 /toolchain/
-# 本地测试截图、临时文件
+# 本地测试截图、临时文件与发布目录
 /.work/
 /.claude/
+/dist/
 
 # Gradle / Android Studio
 .gradle/

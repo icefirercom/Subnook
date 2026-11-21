@@ -89,12 +89,45 @@ interface SubscriptionDao {
     suspend fun maxSortIndex(): Int
 
     @Transaction
-    suspend fun replaceAll(subs: List<Subscription>, payments: List<PaymentRecord>, topUps: List<TopUp> = emptyList()) {
+    suspend fun replaceAll(
+        subs: List<Subscription>,
+        payments: List<PaymentRecord>,
+        topUps: List<TopUp> = emptyList(),
+        assets: List<Asset> = emptyList(),
+    ) {
         deleteAll() // payments / topups cascade
+        deleteAllAssets()
         insertAll(subs)
         insertPayments(payments)
         insertTopUps(topUps)
+        insertAssets(assets)
     }
+
+    // ---- 实物资产（DB v9 新增）----
+
+    @Query("SELECT * FROM assets ORDER BY purchaseDay DESC, id DESC")
+    fun observeAllAssets(): Flow<List<Asset>>
+
+    @Query("SELECT * FROM assets ORDER BY purchaseDay DESC, id DESC")
+    suspend fun getAllAssets(): List<Asset>
+
+    @Query("SELECT * FROM assets WHERE id = :id")
+    suspend fun getAsset(id: Long): Asset?
+
+    @Query("SELECT * FROM assets WHERE id = :id")
+    fun observeAsset(id: Long): Flow<Asset?>
+
+    @Upsert
+    suspend fun upsertAsset(asset: Asset): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAssets(assets: List<Asset>)
+
+    @Delete
+    suspend fun deleteAsset(asset: Asset)
+
+    @Query("DELETE FROM assets")
+    suspend fun deleteAllAssets()
 
     // ---- 余额付款（移植自 PR #3）----
 
@@ -145,15 +178,59 @@ interface SubscriptionDao {
 /** 余额按分保存，避免 0.1 + 0.2 这类浮点尾巴 */
 fun roundMoney(v: Double): Double = java.math.BigDecimal.valueOf(v).setScale(2, java.math.RoundingMode.HALF_UP).toDouble()
 
-@Database(entities = [Subscription::class, PaymentRecord::class, TopUp::class], version = 8, exportSchema = false)
+@Database(entities = [Subscription::class, PaymentRecord::class, TopUp::class, Asset::class], version = 10, exportSchema = true)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun dao(): SubscriptionDao
 
     companion object {
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "subnook.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                .addMigrations(
+                    MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
+                    MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
+                )
                 .build()
+
+        /** v10：非周期订阅新增「无结束时间 / 买断制」开关 */
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE subscriptions ADD COLUMN noExpiry INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /** v9：新增实物资产表 assets（手机、空调、保修期、购买渠道、凭证图等） */
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `assets` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`name` TEXT NOT NULL, " +
+                        "`iconType` TEXT NOT NULL, " +
+                        "`iconValue` TEXT NOT NULL, " +
+                        "`color` INTEGER NOT NULL, " +
+                        "`category` TEXT NOT NULL, " +
+                        "`price` REAL NOT NULL, " +
+                        "`currency` TEXT NOT NULL, " +
+                        "`purchaseDay` INTEGER NOT NULL, " +
+                        "`purchaseChannel` TEXT NOT NULL, " +
+                        "`payChannel` TEXT NOT NULL, " +
+                        "`warrantyEndDay` INTEGER, " +
+                        "`extWarrantyEndDay` INTEGER, " +
+                        "`extWarrantyLabel` TEXT NOT NULL, " +
+                        "`remindEnabled` INTEGER NOT NULL, " +
+                        "`remindDaysBefore` INTEGER NOT NULL, " +
+                        "`remindedForDay` INTEGER, " +
+                        "`serialNumber` TEXT NOT NULL, " +
+                        "`orderNumber` TEXT NOT NULL, " +
+                        "`photos` TEXT NOT NULL, " +
+                        "`status` TEXT NOT NULL, " +
+                        "`retiredDay` INTEGER, " +
+                        "`soldAmount` REAL NOT NULL, " +
+                        "`note` TEXT NOT NULL, " +
+                        "`createdAt` INTEGER NOT NULL)",
+                )
+            }
+        }
 
         /** v8：实际扣款渠道（如 信用卡7727、借记卡2990、微信零钱，跨支付平台复用） */
         private val MIGRATION_7_8 = object : Migration(7, 8) {

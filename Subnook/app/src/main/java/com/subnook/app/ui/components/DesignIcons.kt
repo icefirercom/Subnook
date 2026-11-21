@@ -1,6 +1,7 @@
 package com.subnook.app.ui.components
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.*
@@ -38,6 +39,12 @@ object DesignIcons {
         "Router" to Icons.Rounded.Router,
         "Wifi" to Icons.Rounded.Wifi,
         "PhoneAndroid" to Icons.Rounded.PhoneAndroid,
+        "Smartphone" to Icons.Rounded.Smartphone,
+        "Laptop" to Icons.Rounded.Laptop,
+        "Watch" to Icons.Rounded.Watch,
+        "AcUnit" to Icons.Rounded.AcUnit,
+        "Kitchen" to Icons.Rounded.Kitchen,
+        "Chair" to Icons.Rounded.Chair,
         "SimCard" to Icons.Rounded.SimCard,
         "Flight" to Icons.Rounded.Flight,
         "School" to Icons.Rounded.School,
@@ -51,7 +58,7 @@ object DesignIcons {
         "ShoppingBag" to Icons.Rounded.ShoppingBag,
         "Restaurant" to Icons.Rounded.Restaurant,
         "LocalCafe" to Icons.Rounded.LocalCafe,
-        "Chat" to Icons.Rounded.Chat,
+        "Chat" to Icons.AutoMirrored.Rounded.Chat,
         "Send" to Icons.AutoMirrored.Rounded.Send,
         "Mail" to Icons.Rounded.Mail,
         "Groups" to Icons.Rounded.Groups,

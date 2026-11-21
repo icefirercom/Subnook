@@ -33,6 +33,7 @@ object Billing {
 
     /** 订阅在 [from, to] 区间内的所有账单日（基于下次付款日向前/向后推算） */
     fun occurrences(sub: Subscription, fromDate: LocalDate, toDate: LocalDate): List<LocalDate> {
+        if (sub.isLifetime) return emptyList()
         if (sub.isOneTime) {
             val d = LocalDate.ofEpochDay(sub.nextBillingDay)
             return if (d in fromDate..toDate) listOf(d) else emptyList()
@@ -105,9 +106,9 @@ object Billing {
     /** 进入「待付款」的天数窗口：3 天内到期（含已逾期） */
     const val PAYABLE_DAYS = 3L
 
-    /** 是否显示在「待付款」里并提供「已付款」按钮（不分自动/手动，自动扣款也可能提前） */
+    /** 是否显示在「待付款」里并提供「已付款」按钮（买断制无结束时间不进入待付款） */
     fun isPayable(sub: Subscription, today: LocalDate = today()): Boolean =
-        sub.active && daysUntil(sub, today) <= PAYABLE_DAYS
+        sub.active && !sub.isLifetime && daysUntil(sub, today) <= PAYABLE_DAYS
 
     fun daysUntil(sub: Subscription, today: LocalDate = today()): Long =
         ChronoUnit.DAYS.between(today, LocalDate.ofEpochDay(sub.nextBillingDay))
@@ -117,6 +118,7 @@ object Billing {
         compareBy<Subscription> { !it.isOneTime }.thenBy { it.nextBillingDay }
 
     fun cycleText(sub: Subscription): String = when {
+        sub.isLifetime -> "买断"
         sub.isOneTime -> "非周期"
         sub.cycleCount == 1 -> "每${sub.cycleUnit.label}"
         else -> "每${sub.cycleCount}${sub.cycleUnit.label}"

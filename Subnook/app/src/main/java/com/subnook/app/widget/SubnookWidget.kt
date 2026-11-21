@@ -132,8 +132,8 @@ class SubnookWidget : GlanceAppWidget() {
         val next30 = active.sumOf { s ->
             rates.convert(Billing.upcomingCost(s, today, today.plusDays(29)), s.currency, cur)
         }
-        // 列表可以滑动，多给一些（RemoteViews 有大小限制，不要无限多）；非周期订阅到期提醒优先靠前
-        val items = active.sortedWith(Billing.pendingComparator).take(30).map { s ->
+        // 列表可以滑动，多给一些（RemoteViews 有大小限制，不要无限多）；买断制不参与即将到期列表，非周期到期提醒优先靠前
+        val items = active.filter { !it.isLifetime }.sortedWith(Billing.pendingComparator).take(30).map { s ->
             val date = LocalDate.ofEpochDay(s.nextBillingDay)
             WidgetItem(
                 id = s.id,

@@ -12,9 +12,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Inventory2
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.foundation.layout.WindowInsets
@@ -55,6 +57,7 @@ import com.subnook.app.ui.theme.SubnookTheme
 class MainActivity : ComponentActivity() {
     private val vm: MainViewModel by viewModels()
     private val openSubId = mutableLongStateOf(-1L)
+    private val openAssetId = mutableLongStateOf(-1L)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,7 +66,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settings by vm.state.collectAsState()
             SubnookTheme(settings.settings.theme) {
-                AppRoot(vm, openSubId.longValue) { openSubId.longValue = -1L }
+                AppRoot(
+                    vm = vm,
+                    openSubId = openSubId.longValue,
+                    consumeOpenSub = { openSubId.longValue = -1L },
+                    openAssetId = openAssetId.longValue,
+                    consumeOpenAsset = { openAssetId.longValue = -1L },
+                )
             }
         }
     }
@@ -76,16 +85,20 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(intent: Intent?) {
         val id = intent?.getLongExtra(EXTRA_SUB_ID, -1L) ?: -1L
         if (id > 0) openSubId.longValue = id
+        val aid = intent?.getLongExtra(EXTRA_ASSET_ID, -1L) ?: -1L
+        if (aid > 0) openAssetId.longValue = aid
     }
 
     companion object {
         const val EXTRA_SUB_ID = "sub_id"
+        const val EXTRA_ASSET_ID = "asset_id"
     }
 }
 
 
 private val tabs = listOf(
     NavItem("home", "订阅", Icons.Outlined.Layers, Icons.Rounded.Layers),
+    NavItem("assets", "物品", Icons.Outlined.Inventory2, Icons.Rounded.Inventory2),
     NavItem("calendar", "日历", Icons.Outlined.CalendarMonth, Icons.Rounded.CalendarMonth),
     NavItem("settings", "设置", Icons.Outlined.Settings, Icons.Rounded.Settings),
 )
@@ -97,10 +110,17 @@ object Routes {
     const val MANAGE_PRESETS = "manage_presets"
     fun edit(id: Long = 0, preset: String? = null, name: String? = null, installment: Boolean = false) =
         "edit?id=$id&preset=${preset ?: ""}&name=${android.net.Uri.encode(name ?: "")}&inst=$installment"
+    fun assetEdit(id: Long = 0) = "asset_edit?id=$id"
 }
 
 @Composable
-private fun AppRoot(vm: MainViewModel, openSubId: Long, consumeOpen: () -> Unit) {
+private fun AppRoot(
+    vm: MainViewModel,
+    openSubId: Long,
+    consumeOpenSub: () -> Unit,
+    openAssetId: Long,
+    consumeOpenAsset: () -> Unit,
+) {
     val nav = rememberNavController()
     val snackbar = remember { SnackbarHostState() }
     val backStack by nav.currentBackStackEntryAsState()
@@ -120,7 +140,13 @@ private fun AppRoot(vm: MainViewModel, openSubId: Long, consumeOpen: () -> Unit)
     LaunchedEffect(openSubId) {
         if (openSubId > 0) {
             nav.navigate(Routes.edit(openSubId))
-            consumeOpen()
+            consumeOpenSub()
+        }
+    }
+    LaunchedEffect(openAssetId) {
+        if (openAssetId > 0) {
+            nav.navigate(Routes.assetEdit(openAssetId))
+            consumeOpenAsset()
         }
     }
     LifecycleResumeEffect(Unit) {
@@ -163,9 +189,23 @@ private fun AppRoot(vm: MainViewModel, openSubId: Long, consumeOpen: () -> Unit)
                     StatusBarScrim()
                 }
             }
+            composable("assets") {
+                androidx.compose.foundation.layout.Box {
+                    com.subnook.app.ui.assets.AssetsScreen(
+                        vm = vm,
+                        onAdd = { nav.navigate(Routes.assetEdit(0)) },
+                        onOpen = { nav.navigate(Routes.assetEdit(it)) },
+                    )
+                    StatusBarScrim()
+                }
+            }
             composable("calendar") {
                 androidx.compose.foundation.layout.Box {
-                    CalendarScreen(vm, onOpen = { nav.navigate(Routes.edit(it)) })
+                    CalendarScreen(
+                        vm = vm,
+                        onOpen = { nav.navigate(Routes.edit(it)) },
+                        onOpenAsset = { nav.navigate(Routes.assetEdit(it)) },
+                    )
                     StatusBarScrim()
                 }
             }
@@ -197,6 +237,17 @@ private fun AppRoot(vm: MainViewModel, openSubId: Long, consumeOpen: () -> Unit)
                     onPick = { key, query ->
                         nav.navigate(Routes.edit(0, key, if (key == null) query else null)) { popUpTo(Routes.PRESETS) { inclusive = true } }
                     },
+                )
+            }
+            composable(
+                "asset_edit?id={id}",
+                arguments = listOf(navArgument("id") { type = NavType.LongType; defaultValue = 0L }),
+            ) { entry ->
+                com.subnook.app.ui.assets.AssetEditScreen(
+                    vm = vm,
+                    id = entry.arguments?.getLong("id") ?: 0L,
+                    onBack = { nav.popBackStack() },
+                    onAddMaintenance = { prefill -> nav.navigate(Routes.edit(0, name = prefill)) },
                 )
             }
             composable(

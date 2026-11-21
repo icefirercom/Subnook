@@ -8,6 +8,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.AllInclusive
 import androidx.compose.material.icons.rounded.Autorenew
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
@@ -136,8 +137,11 @@ internal class Form {
     var instFirst by mutableStateOf("")
     /** 下次还款是第几期 */
     var instCurrent by mutableStateOf("1")
+    /** 非周期订阅：是否买断制（无结束时间） */
+    var noExpiry by mutableStateOf(false)
     val isInstallment get() = kind == SubKind.INSTALLMENT
     val isOneTime get() = kind == SubKind.ONE_TIME
+    val isLifetime get() = isOneTime && noExpiry
 
     // ---- 余额付款 ----
     var balance by mutableStateOf("")
@@ -168,6 +172,7 @@ internal class Form {
         remind = s.remindEnabled; remindDays = s.remindDaysBefore; active = s.active; note = s.note; presetKey = s.presetKey
         payMethodNote = s.payMethodNote; payChannel = s.payChannel; categoryNote = s.categoryNote
         kind = s.kind
+        noExpiry = s.noExpiry
         balance = if (s.balance == 0.0) "" else s.balance.plain(); balanceTouched = false
         if (s.isInstallment) {
             instPrincipal = s.instPrincipal.plain(); instTerms = s.instTerms.toString()
@@ -279,9 +284,10 @@ internal class Form {
             nextBillingDay = next.toEpochDay(),
             anchorDay = anchor,
             payMethod = payMethod, autoRenew = if (isOneTime) false else autoRenew, category = category,
-            remindEnabled = remind, remindDaysBefore = remindDays, active = active, note = note.trim(),
+            remindEnabled = if (isLifetime) false else remind, remindDaysBefore = remindDays, active = active, note = note.trim(),
             presetKey = presetKey,
             kind = kind,
+            noExpiry = if (isOneTime) noExpiry else false,
             remindedForDay = o?.remindedForDay,
             overdueNotifiedDay = if (dateChanged) null else o?.overdueNotifiedDay,
             balance = bal,
@@ -299,7 +305,7 @@ private val FormSaver = androidx.compose.runtime.saveable.listSaver<Form, Any?>(
             f.next.toEpochDay(), f.payMethod.name, f.autoRenew, f.category.name, f.remind, f.remindDays, f.active,
             f.note, f.presetKey, f.loaded,
             f.kind.name, f.instPrincipal, f.instTerms, f.instRate, f.instMethod.name, f.instFirst, f.instCurrent,
-            f.balance, f.balanceTouched, f.payMethodNote, f.categoryNote, f.payChannel,
+            f.balance, f.balanceTouched, f.payMethodNote, f.categoryNote, f.payChannel, f.noExpiry,
         )
     },
     restore = { l ->
@@ -316,6 +322,7 @@ private val FormSaver = androidx.compose.runtime.saveable.listSaver<Form, Any?>(
             balance = l[25] as String; balanceTouched = l[26] as Boolean
             payMethodNote = l[27] as String; categoryNote = l[28] as String
             payChannel = l.getOrNull(29) as? String ?: ""
+            noExpiry = l.getOrNull(30) as? Boolean ?: false
         }
     },
 )
@@ -497,6 +504,19 @@ fun EditScreen(vm: MainViewModel, id: Long, presetKey: String?, onBack: () -> Un
                     ) { k ->
                         form.kind = k
                         if (k == SubKind.ONE_TIME) form.autoRenew = false
+                        else form.noExpiry = false
+                    }
+                    if (form.isOneTime) {
+                        SwitchRow(
+                            androidx.compose.material.icons.Icons.Rounded.AllInclusive,
+                            extra.success,
+                            "无结束时间（买断制）",
+                            "永久有效，不触发到期倒计时与提醒",
+                            form.noExpiry,
+                        ) { on ->
+                            form.noExpiry = on
+                            if (on && form.original == null) form.next = LocalDate.now()
+                        }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Field(
@@ -540,7 +560,15 @@ fun EditScreen(vm: MainViewModel, id: Long, presetKey: String?, onBack: () -> Un
                         IconTile(Icons.Rounded.CalendarMonth, cs.primary, size = 34.dp)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(if (form.isOneTime) "到期时间" else "下次付款日期", style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant)
+                            Text(
+                                when {
+                                    form.isLifetime -> "购买日期（参考）"
+                                    form.isOneTime -> "到期时间"
+                                    else -> "下次付款日期"
+                                },
+                                style = MaterialTheme.typography.labelMedium,
+                                color = cs.onSurfaceVariant,
+                            )
                             Text(form.next.format(DateTimeFormatter.ofPattern("yyyy年M月d日（E）", java.util.Locale.CHINA)), style = MaterialTheme.typography.titleSmall)
                         }
                         Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = cs.outline)
@@ -591,7 +619,7 @@ fun EditScreen(vm: MainViewModel, id: Long, presetKey: String?, onBack: () -> Un
                 )
             }
 
-            Group("提醒") {
+            if (!form.isLifetime) Group("提醒") {
                 Column(Modifier.padding(16.dp)) {
                     SwitchRow(
                         Icons.Rounded.NotificationsActive, extra.warning,
@@ -622,12 +650,11 @@ fun EditScreen(vm: MainViewModel, id: Long, presetKey: String?, onBack: () -> Un
                 }
             }
 
-            Group("备注") {
-                Field(
-                    form.note, { form.note = it }, "账号、套餐等（可选）", singleLine = false,
-                    modifier = Modifier.fillMaxWidth().padding(12.dp),
-                )
-            }
+            com.subnook.app.ui.components.ExpandableNoteCard(
+                value = form.note,
+                onChange = { form.note = it },
+                onCopied = vm::toast,
+            )
 
             if (id > 0) {
                 form.build()?.let { s ->
@@ -645,7 +672,7 @@ fun EditScreen(vm: MainViewModel, id: Long, presetKey: String?, onBack: () -> Un
                             }
                         }
                     }
-                    if (!s.autoRenew && s.active && !Installments.isFinished(s)) {
+                    if (!s.autoRenew && !s.isLifetime && s.active && !Installments.isFinished(s)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             OutlinedButton(onClick = { vm.skip(s); onBack() }, Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(14.dp)) {
                                 Text(if (s.isOneTime) "不再提醒" else "跳过本期")
@@ -735,6 +762,7 @@ fun EditScreen(vm: MainViewModel, id: Long, presetKey: String?, onBack: () -> Un
         com.subnook.app.ui.components.ChineseDatePickerDialog(
             initial = form.next,
             title = when {
+                form.isLifetime -> "选择购买日期"
                 form.isOneTime -> "选择到期时间"
                 form.isInstallment -> "选择下次还款日"
                 else -> "选择下次付款日期"

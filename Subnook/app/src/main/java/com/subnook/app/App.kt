@@ -33,6 +33,15 @@ class App : Application() {
         notifier.createChannels()
         Scheduler.schedulePeriodicWork(this)
         appScope.launch {
+            // 检测到版本变更时自动留存一份本地回退快照（避免升级后发现异常无法回退数据）
+            runCatching {
+                val prev = settings.lastAppVersionCode()
+                val cur = BuildConfig.VERSION_CODE
+                if (prev != 0 && prev != cur) {
+                    backup.createLocalSnapshot(reason = "pre_upgrade", versionName = "vc$prev")
+                }
+                if (prev != cur) settings.setLastAppVersionCode(cur)
+            }
             Scheduler.runAll(this@App)
             rates.refreshIfStale()
         }

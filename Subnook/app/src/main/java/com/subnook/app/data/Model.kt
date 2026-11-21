@@ -76,6 +76,11 @@ enum class Category(val label: String) {
         val forInstallment: List<Category> = listOf(DIGITAL, APPLIANCE, CAR, HOUSING, EDU, HEALTH, SHOPPING, LIFE).let { first ->
             first + entries.filter { it !in first && it != OTHER } + OTHER
         }
+
+        /** 实物资产的分类：数码、家电、汽车、家居优先 */
+        val forAsset: List<Category> = listOf(DIGITAL, APPLIANCE, CAR, HOUSING, HEALTH, LIFE, TOOLS, OTHER).let { first ->
+            first + entries.filter { it !in first }
+        }
     }
 }
 
@@ -159,9 +164,13 @@ data class Subscription(
     @ColumnInfo(defaultValue = "") val categoryNote: String = "",
     // ---- DB v8 新增：实际扣款渠道（如 信用卡7727、借记卡2990、微信零钱等，可跨支付平台复用）----
     @ColumnInfo(defaultValue = "") val payChannel: String = "",
+    // ---- DB v10 新增：非周期订阅是否「无结束时间 / 买断制」（不参与到期倒计时、待付款与到期提醒）----
+    @ColumnInfo(defaultValue = "0") val noExpiry: Boolean = false,
 ) {
     val isInstallment: Boolean get() = kind == SubKind.INSTALLMENT
     val isOneTime: Boolean get() = kind == SubKind.ONE_TIME
+    /** 买断制 / 无结束时间的非周期订阅 */
+    val isLifetime: Boolean get() = isOneTime && noExpiry
 
     /** 支付平台名称（一级，如 Google Pay / 微信 / 支付宝 / 自定义名称） */
     val payPlatformLabel: String
@@ -275,4 +284,74 @@ data class CustomPreset(
     val enabled: Boolean = true,
 ) {
     val color: Int get() = colorLong.toInt()
+}
+
+/** 实物资产使用状态 */
+enum class AssetStatus(val label: String) {
+    ACTIVE("在用"),
+    IDLE("闲置"),
+    SOLD("已出二手"),
+    RETIRED("已报废"),
+}
+
+/** 保修时长快捷预设（months = null 表示手动指定到期日） */
+enum class WarrantyPreset(val label: String, val months: Int?) {
+    NONE("无保修", 0),
+    M6("6个月", 6),
+    Y1("1年", 12),
+    Y2("2年", 24),
+    Y3("3年", 36),
+    Y6("6年", 72),
+    Y10("10年", 120),
+    CUSTOM("自定义", null),
+}
+
+/** 实物资产档案（手机、空调、电脑等：独立于订阅表，不污染月均订阅支出，DB v9 新增） */
+@Serializable
+@Entity(tableName = "assets")
+data class Asset(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val iconType: IconType = IconType.MATERIAL,
+    val iconValue: String = "Smartphone",
+    val color: Int = 0xFF165B4C.toInt(),
+    val category: Category = Category.DIGITAL,
+    val price: Double = 0.0,
+    val currency: String = "CNY",
+    /** 购买日期 (LocalDate.toEpochDay) */
+    val purchaseDay: Long,
+    /** 购买渠道（如 京东自营、天猫旗舰店、官方商城、线下门店） */
+    val purchaseChannel: String = "",
+    /** 付款渠道（复用全局扣款渠道池，如 信用卡7727、借记卡2990） */
+    val payChannel: String = "",
+    /** 主保修到期日 (LocalDate.toEpochDay)，null 表示无保修 */
+    val warrantyEndDay: Long? = null,
+    /** 扩展/核心部件保修到期日（如空调压缩机 10 年、AppleCare+），null 表示无 */
+    val extWarrantyEndDay: Long? = null,
+    /** 扩展保修说明（如「压缩机保修」「AppleCare+」） */
+    val extWarrantyLabel: String = "",
+    val remindEnabled: Boolean = true,
+    /** 过保前提前提醒天数，默认 30 天 */
+    val remindDaysBefore: Int = 30,
+    /** 上次发送过保提醒的日期（每天最多一次） */
+    val remindedForDay: Long? = null,
+    /** 序列号 / SN / IMEI */
+    val serialNumber: String = "",
+    /** 订单号 */
+    val orderNumber: String = "",
+    /** 本地压缩凭证图文件名，换行分隔（最多 3 张，存放在 filesDir/asset_photos/） */
+    val photos: String = "",
+    val status: AssetStatus = AssetStatus.ACTIVE,
+    /** 卖出/报废日期 (LocalDate.toEpochDay) */
+    val retiredDay: Long? = null,
+    /** 已出二手时的回血金额 */
+    val soldAmount: Double = 0.0,
+    val note: String = "",
+    val createdAt: Long = System.currentTimeMillis(),
+) {
+    val photoList: List<String>
+        get() = photos.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+
+    /** 仍持有（在用或闲置） */
+    val isOwned: Boolean get() = status == AssetStatus.ACTIVE || status == AssetStatus.IDLE
 }

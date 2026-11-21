@@ -143,7 +143,49 @@ class Notifier(private val context: Context) {
 
     fun cancel(subId: Long) = NotificationManagerCompat.from(context).cancel(notifId(subId))
 
+    fun cancelAsset(assetId: Long) = NotificationManagerCompat.from(context).cancel(assetNotifId(assetId))
+
+    /** 实物资产过保提醒 */
+    fun warrantyExpiring(asset: com.subnook.app.data.Asset, today: LocalDate) {
+        if (!canPost()) return
+        val mainDays = com.subnook.app.domain.Assets.warrantyDaysLeft(asset, today)
+        val extDays = com.subnook.app.domain.Assets.extWarrantyDaysLeft(asset, today)
+        val hitExt = mainDays == null || mainDays < 0 || (extDays != null && extDays >= 0 && extDays < mainDays)
+        val days = if (hitExt) (extDays ?: return) else mainDays
+        val label = if (hitExt) asset.extWarrantyLabel.ifBlank { "延保/核心部件保修" } else "保修"
+        val whenText = when (days) {
+            0L -> "今天"
+            1L -> "明天"
+            else -> "${days}天后"
+        }
+        val title = "${asset.name} ${label}${whenText}到期"
+        val channel = asset.purchaseChannel.ifBlank { asset.category.label }
+        val text = "购买渠道：$channel · 建议过保前检查设备状态，必要时及时申请售后"
+        val open = PendingIntent.getActivity(
+            context, assetNotifId(asset.id),
+            Intent(context, MainActivity::class.java).putExtra(MainActivity.EXTRA_ASSET_ID, asset.id)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val b = NotificationCompat.Builder(context, CH_BILL)
+            .setSmallIcon(R.drawable.ic_stat_bill)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setColor(asset.color)
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setSortKey("0_asset_%06d".format(asset.id))
+        try {
+            NotificationManagerCompat.from(context).notify(assetNotifId(asset.id), b.build())
+        } catch (_: SecurityException) {
+        }
+    }
+
     private fun notifId(subId: Long) = 10_000 + subId.toInt()
+    private fun assetNotifId(assetId: Long) = 30_000 + assetId.toInt()
 
     companion object {
         const val CH_BILL = "bill"
