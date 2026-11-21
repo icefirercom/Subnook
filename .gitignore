@@ -1,0 +1,27 @@
+# 本地工具链（JDK / SDK / Gradle 及缓存，体积大）
+/toolchain/
+# 本地测试截图、临时文件
+/.work/
+/.claude/
+
+# Gradle / Android Studio
+.gradle/
+.kotlin/
+build/
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 签名（绝不能公开）
+*.jks
+*.keystore
+keystore.properties
+**/keystore/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini

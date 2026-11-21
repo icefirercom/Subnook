@@ -1,0 +1,81 @@
+package com.subnook.app.ui.components
+
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.ui.graphics.vector.ImageVector
+
+/** 内置可选的设计图标（Material Symbols Rounded） */
+object DesignIcons {
+    val all: List<Pair<String, ImageVector>> = listOf(
+        "Movie" to Icons.Rounded.Movie,
+        "Tv" to Icons.Rounded.Tv,
+        "SmartDisplay" to Icons.Rounded.SmartDisplay,
+        "LiveTv" to Icons.Rounded.LiveTv,
+        "MusicNote" to Icons.Rounded.MusicNote,
+        "Headphones" to Icons.Rounded.Headphones,
+        "Podcasts" to Icons.Rounded.Podcasts,
+        "Radio" to Icons.Rounded.Radio,
+        "AutoAwesome" to Icons.Rounded.AutoAwesome,
+        "Psychology" to Icons.Rounded.Psychology,
+        "SmartToy" to Icons.Rounded.SmartToy,
+        "Code" to Icons.Rounded.Code,
+        "Terminal" to Icons.Rounded.Terminal,
+        "Cloud" to Icons.Rounded.Cloud,
+        "Storage" to Icons.Rounded.Storage,
+        "Dns" to Icons.Rounded.Dns,
+        "Language" to Icons.Rounded.Language,
+        "Description" to Icons.Rounded.Description,
+        "EditNote" to Icons.Rounded.EditNote,
+        "Brush" to Icons.Rounded.Brush,
+        "Palette" to Icons.Rounded.Palette,
+        "PhotoCamera" to Icons.Rounded.PhotoCamera,
+        "Key" to Icons.Rounded.Key,
+        "Lock" to Icons.Rounded.Lock,
+        "VpnKey" to Icons.Rounded.VpnKey,
+        "Shield" to Icons.Rounded.Shield,
+        "Router" to Icons.Rounded.Router,
+        "Wifi" to Icons.Rounded.Wifi,
+        "PhoneAndroid" to Icons.Rounded.PhoneAndroid,
+        "SimCard" to Icons.Rounded.SimCard,
+        "Flight" to Icons.Rounded.Flight,
+        "School" to Icons.Rounded.School,
+        "MenuBook" to Icons.AutoMirrored.Rounded.MenuBook,
+        "Translate" to Icons.Rounded.Translate,
+        "FitnessCenter" to Icons.Rounded.FitnessCenter,
+        "SelfImprovement" to Icons.Rounded.SelfImprovement,
+        "HealthAndSafety" to Icons.Rounded.HealthAndSafety,
+        "LocalHospital" to Icons.Rounded.LocalHospital,
+        "ShoppingCart" to Icons.Rounded.ShoppingCart,
+        "ShoppingBag" to Icons.Rounded.ShoppingBag,
+        "Restaurant" to Icons.Rounded.Restaurant,
+        "LocalCafe" to Icons.Rounded.LocalCafe,
+        "Chat" to Icons.Rounded.Chat,
+        "Send" to Icons.AutoMirrored.Rounded.Send,
+        "Mail" to Icons.Rounded.Mail,
+        "Groups" to Icons.Rounded.Groups,
+        "SportsEsports" to Icons.Rounded.SportsEsports,
+        "Casino" to Icons.Rounded.Casino,
+        "Home" to Icons.Rounded.Home,
+        "Bolt" to Icons.Rounded.Bolt,
+        "WaterDrop" to Icons.Rounded.WaterDrop,
+        "LocalGasStation" to Icons.Rounded.LocalGasStation,
+        "DirectionsCar" to Icons.Rounded.DirectionsCar,
+        "Pets" to Icons.Rounded.Pets,
+        "ChildCare" to Icons.Rounded.ChildCare,
+        "CreditCard" to Icons.Rounded.CreditCard,
+        "AccountBalance" to Icons.Rounded.AccountBalance,
+        "Savings" to Icons.Rounded.Savings,
+        "Receipt" to Icons.Rounded.Receipt,
+        "Newspaper" to Icons.Rounded.Newspaper,
+        "Star" to Icons.Rounded.Star,
+        "Favorite" to Icons.Rounded.Favorite,
+        "Diamond" to Icons.Rounded.Diamond,
+        "Rocket" to Icons.Rounded.RocketLaunch,
+        "Build" to Icons.Rounded.Build,
+        "Apps" to Icons.Rounded.Apps,
+    )
+    private val map = all.toMap()
+    fun byName(name: String): ImageVector? = map[name]
+}

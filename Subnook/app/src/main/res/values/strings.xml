@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Subnook</string>
+    <string name="widget_desc">本月订阅支出与即将扣款的订阅</string>
+</resources>
