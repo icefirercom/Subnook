@@ -1,15 +1,18 @@
-﻿# 规范化发版脚本：校验版本号与 CHANGELOG → 跑全量单测 → 编译 Release APK → 生成 SHA-256 → 可选自动打 Git Tag
+﻿# 规范化发版脚本：校验版本号/CHANGELOG/正式签名配置 → 跑全量单测 → 编译 Release APK → apksigner 防呆验签 → 生成 SHA-256 → 可选自动打 Git Tag
 # 用法：
-#   .\scripts\release.ps1             # 校验 + 单测 + 输出 dist\Subnook-vX.Y.Z.apk 与 SHA-256
-#   .\scripts\release.ps1 -Tag        # 额外检查工作区干净并创建带注释的 Git Tag (vX.Y.Z)
+#   .\scripts\release.ps1                 # 校验 + 单测 + 正式签名 APK + 验签防呆
+#   .\scripts\release.ps1 -Tag            # 额外检查工作区干净并创建带注释的 Git Tag (vX.Y.Z)
+#   .\scripts\release.ps1 -AllowDebugSign # 仅本地调试用：允许回退 Debug 签名
 param(
-    [switch]$Tag
+    [switch]$Tag,
+    [switch]$AllowDebugSign
 )
 
 $ErrorActionPreference = "Stop"
 $root = (Resolve-Path "$PSScriptRoot\..").Path
 $gradleFile = "$root\Subnook\app\build.gradle.kts"
 $changelogFile = "$root\CHANGELOG.md"
+$propsFile = "$root\Subnook\keystore.properties"
 
 $gradleText = Get-Content $gradleFile -Raw -Encoding UTF8
 if ($gradleText -notmatch 'versionName\s*=\s*"([^"]+)"') { throw "无法从 build.gradle.kts 读取 versionName" }
@@ -24,6 +27,33 @@ Write-Host ">>> Release Target: $tagName (versionCode=$code)" -ForegroundColor C
 $changelogText = Get-Content $changelogFile -Raw -Encoding UTF8
 if ($changelogText -notmatch "(?m)^##\s+$([regex]::Escape($ver))\b") {
     throw "CHANGELOG.md 中未找到 '## $ver' 变更记录，请先补充后再发版。"
+}
+
+# 防呆校验 1：构建前确认正式签名配置与密钥库文件存在（避免静默回退 Debug 签名）
+if (-not $AllowDebugSign) {
+    if (-not (Test-Path $propsFile)) {
+        throw "禁止发布：未找到 $propsFile。请先配置正式签名信息（或仅调试时加 -AllowDebugSign）。"
+    }
+    $props = @{}
+    foreach ($line in (Get-Content $propsFile -Encoding UTF8)) {
+        $trim = $line.Trim()
+        if ($trim -eq "" -or $trim.StartsWith("#")) { continue }
+        $idx = $trim.IndexOf("=")
+        if ($idx -gt 0) {
+            $k = $trim.Substring(0, $idx).Trim()
+            $v = $trim.Substring($idx + 1).Trim()
+            $props[$k] = $v
+        }
+    }
+    $storeRel = if ($props.ContainsKey("storeFile") -and $props["storeFile"]) { $props["storeFile"] } else { "keystore/release.jks" }
+    $storePath = if ([System.IO.Path]::IsPathRooted($storeRel)) { $storeRel } else { Join-Path "$root\Subnook" $storeRel }
+    if (-not (Test-Path $storePath)) {
+        throw "禁止发布：签名密钥库不存在：$storePath（请确认文件放在 Subnook\keystore\ 下而非仓库根目录）。"
+    }
+    if ($props["storePassword"] -eq "your-store-password" -or $props["keyPassword"] -eq "your-key-password") {
+        throw "禁止发布：Subnook\keystore.properties 中仍包含占位密码，请填写真实签名密码。"
+    }
+    Write-Host ">>> Signing keystore verified: $storePath (alias=$($props['keyAlias']))" -ForegroundColor DarkCyan
 }
 
 if ($Tag) {
@@ -63,6 +93,30 @@ $distDir = "$root\dist"
 New-Item -ItemType Directory -Force $distDir | Out-Null
 $outApk = "$distDir\Subnook-$tagName.apk"
 Copy-Item $srcApk $outApk -Force
+
+# 防呆校验 2：用 apksigner 核验 APK 证书，严禁误发 Android Debug 测试签名包
+$apksignerJar = Get-ChildItem "$env:ANDROID_HOME\build-tools\*\lib\apksigner.jar" -ErrorAction SilentlyContinue |
+    Sort-Object FullName -Descending | Select-Object -First 1
+if ($apksignerJar) {
+    Write-Host ">>> Verifying APK signing certificate..." -ForegroundColor Cyan
+    $certOut = & "$env:JAVA_HOME\bin\java.exe" -jar $apksignerJar.FullName verify --print-certs $outApk 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Remove-Item $outApk -Force -ErrorAction SilentlyContinue
+        throw "APK 签名校验失败：`n$($certOut -join "`n")"
+    }
+    $certText = $certOut -join "`n"
+    if (-not $AllowDebugSign -and $certText -match "CN=Android Debug") {
+        Remove-Item $outApk -Force -ErrorAction SilentlyContinue
+        throw "禁止发布：检测到 APK 使用的是 Android Debug 测试签名！已自动清理产物，请检查 Subnook\keystore.properties 与密钥库路径。`n$certText"
+    }
+    $dnLine = ($certOut | Select-String "Signer #1 certificate DN:").Line
+    $shaLine = ($certOut | Select-String "Signer #1 certificate SHA-256 digest:").Line
+    if ($dnLine) { Write-Host ">>> $dnLine" -ForegroundColor Green }
+    if ($shaLine) { Write-Host ">>> $shaLine" -ForegroundColor DarkGreen }
+} elseif (-not $AllowDebugSign) {
+    throw "未找到 Android build-tools 的 apksigner.jar，无法执行签名防呆校验。"
+}
+
 $hash = (Get-FileHash $outApk -Algorithm SHA256).Hash.ToLower()
 "$hash  Subnook-$tagName.apk" | Set-Content "$distDir\Subnook-$tagName.sha256" -Encoding ASCII
 
