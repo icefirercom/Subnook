@@ -14,15 +14,26 @@ Subnook 是一个简洁的 Android 订阅和分期管理 App：记录各种会�
 - **暖纸墨绿 · 极简账本风 UI**：整体重做浅色（宣纸米白 + 深松石墨绿 + 暖琥珀）与深色（深松烟夜色 + 玉石青绿）视觉体系、卡片描边与桌面小组件配色。
 
 <p>
-  <img src="docs/screenshots/home.png" width="200" alt="首页月均支出与待付款订阅">
-  <img src="docs/screenshots/stats.png" width="200" alt="月均支出与分类占比">
-  <img src="docs/screenshots/balance.png" width="200" alt="余额可付期数、下次充值日期与充值记录">
+  <img src="docs/screenshots/home.png" width="200" alt="暖纸墨绿首页：月均支出与非周期优先的待付款区">
+  <img src="docs/screenshots/list.png" width="200" alt="多币种订阅列表、扣款渠道与分期还款">
+  <img src="docs/screenshots/calendar.png" width="200" alt="账单日历与当天扣款明细">
 </p>
 
 <p>
-  <img src="docs/screenshots/list.png" width="200" alt="多币种订阅列表">
+  <img src="docs/screenshots/stats.png" width="200" alt="支出统计与分类占比环形图">
+  <img src="docs/screenshots/stats-channel.png" width="200" alt="按实际扣款渠道跨平台汇总统计">
+  <img src="docs/screenshots/edit.png" width="200" alt="非周期订阅编辑与支付平台/扣款渠道双层选择">
+</p>
+
+<p>
+  <img src="docs/screenshots/date-picker.png" width="200" alt="中文习惯日期选择框（周一起始与快捷定位）">
+  <img src="docs/screenshots/manage-pay.png" width="200" alt="设置内扣款方式与实际扣款渠道启停管理">
+  <img src="docs/screenshots/manage-presets.png" width="200" alt="设置内订阅源管理（自定义新增与分类启停）">
+</p>
+
+<p>
+  <img src="docs/screenshots/balance.png" width="200" alt="余额可付期数、下次充值日期与充值记录">
   <img src="docs/screenshots/installment-plan.png" width="200" alt="分期还款计划与每期本金、手续费明细">
-  <img src="docs/screenshots/calendar.png" width="200" alt="账单日历与所选日期的 HBO Max 账单">
 </p>
 
 ## 功能
